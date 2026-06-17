@@ -35,7 +35,7 @@ export default function Login({ onGoRegister }: Props) {
             <div className="w-16 h-16 bg-[#5865f2] rounded-full flex items-center justify-center mx-auto mb-4">
               <Icon name="GraduationCap" size={32} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white">УчебаЛаб</h1>
+            <h1 className="text-2xl font-bold text-white">FileTracker</h1>
             <p className="text-[#b9bbbe] text-sm mt-1">Войдите в свой аккаунт</p>
           </div>
 
