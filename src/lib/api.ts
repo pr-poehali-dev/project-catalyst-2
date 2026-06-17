@@ -51,6 +51,8 @@ export const chatApi = {
   getNotifications: () => req(`${URLS.chat}?action=notifications`, { headers: hGet() }),
   markRead: (notification_id?: number) =>
     req(`${URLS.chat}?action=mark_read`, { method: "POST", headers: hPost(), body: JSON.stringify({ notification_id }) }),
+  deleteMessage: (message_id: number) =>
+    req(`${URLS.chat}?action=delete_message`, { method: "POST", headers: hPost(), body: JSON.stringify({ message_id }) }),
 };
 
 export const filesApi = {

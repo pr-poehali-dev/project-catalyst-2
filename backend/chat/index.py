@@ -244,6 +244,31 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
 
+        # --- УДАЛЕНИЕ СООБЩЕНИЯ (админ или автор) ---
+        if action == "delete_message":
+            if not user:
+                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
+            msg_id = body.get("message_id")
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM messages WHERE id=%s", (msg_id,))
+                row = cur.fetchone()
+            if not row:
+                return {"statusCode": 404, "headers": cors, "body": json.dumps({"error": "Сообщение не найдено"})}
+            if user["role"] not in ("admin", "teacher") and row[0] != user["id"]:
+                return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Нет прав"})}
+            with conn.cursor() as cur:
+                cur.execute("UPDATE messages SET content='[сообщение удалено]', reactions='{}' WHERE id=%s", (msg_id,))
+            conn.commit()
+            # лог
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO audit_logs (user_id, action, details) VALUES (%s,%s,%s)",
+                                (user["id"], "delete_message", f"msg_id={msg_id}"))
+                conn.commit()
+            except Exception:
+                pass
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
         return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
     finally:
         conn.close()

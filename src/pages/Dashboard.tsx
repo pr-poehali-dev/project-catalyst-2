@@ -159,6 +159,14 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
     } finally { setSending(false); }
   };
 
+  const handleDeleteMessage = async (msgId: number) => {
+    if (!confirm("Удалить сообщение?")) return;
+    await chatApi.deleteMessage(msgId);
+    setMessages(prev => prev.map(m => m.id === msgId
+      ? { ...m, content: "[сообщение удалено]", reactions: {} }
+      : m));
+  };
+
   const handleReact = async (msgId: number, emoji: string) => {
     const d = await chatApi.react(msgId, emoji);
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reactions: d.reactions } : m));
@@ -360,7 +368,7 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${AVATAR_BG[msg.role]}`}>
                         {avatarLetter(msg.username)}
                       </div>
-                      <div className="flex-1 min-w-0 pr-8">
+                      <div className={`flex-1 min-w-0 ${msg.content === "[сообщение удалено]" ? "pr-2" : "pr-16"}`}>
                         <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
                           <span className={`font-medium text-sm ${ROLE_COLOR[msg.role]}`}>{msg.username}</span>
                           {ROLE_BADGE[msg.role] && (
@@ -370,7 +378,11 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
                           )}
                           <span className="text-[#72767d] text-xs">{formatDate(msg.created_at)}</span>
                         </div>
-                        <p className="text-[#dcddde] text-sm leading-relaxed break-words">{msg.content}</p>
+                        {msg.content === "[сообщение удалено]" ? (
+                          <p className="text-[#72767d] text-sm italic">[сообщение удалено]</p>
+                        ) : (
+                          <p className="text-[#dcddde] text-sm leading-relaxed break-words">{msg.content}</p>
+                        )}
                         {/* Реакции */}
                         {Object.keys(msg.reactions).length > 0 && (
                           <div className="flex gap-1 mt-1.5 flex-wrap">
@@ -391,10 +403,21 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
                           </div>
                         )}
                       </div>
-                      <button onClick={e => { e.stopPropagation(); setShowEmojiFor(showEmojiFor === msg.id ? null : msg.id); }}
-                        className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded hover:bg-[#40444b] text-[#b9bbbe] text-base transition-all">
-                        😊
-                      </button>
+                      {/* Кнопки действий — появляются при наведении */}
+                      {msg.content !== "[сообщение удалено]" && (
+                        <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-all">
+                          <button onClick={e => { e.stopPropagation(); setShowEmojiFor(showEmojiFor === msg.id ? null : msg.id); }}
+                            className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#40444b] text-[#b9bbbe] text-base">
+                            😊
+                          </button>
+                          {(user?.role === "admin" || user?.role === "teacher") && (
+                            <button onClick={e => { e.stopPropagation(); handleDeleteMessage(msg.id); }}
+                              className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#ed4245]/20 text-[#b9bbbe] hover:text-[#ed4245] transition-colors">
+                              <Icon name="Trash2" size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div ref={endRef} />
