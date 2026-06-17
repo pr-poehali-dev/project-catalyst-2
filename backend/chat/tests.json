@@ -1,0 +1,11 @@
+{
+  "tests": [
+    {
+      "name": "Chat OPTIONS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

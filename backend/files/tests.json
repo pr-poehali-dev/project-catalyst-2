@@ -1,0 +1,11 @@
+{
+  "tests": [
+    {
+      "name": "Files OPTIONS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
