@@ -34,9 +34,12 @@ export default function Dashboard({ onOpenAdmin }: Props) {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
+  const [online, setOnline] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMessageIdRef = useRef<number>(0);
+  const activeChannelRef = useRef<Channel | null>(null);
 
   useEffect(() => {
     chatApi.getChannels().then((d) => {
@@ -45,24 +48,66 @@ export default function Dashboard({ onOpenAdmin }: Props) {
     });
   }, []);
 
-  const loadMessages = useCallback(async (channelId: number) => {
-    const d = await chatApi.getMessages(channelId);
-    setMessages(d.messages);
-  }, []);
+  // Держим ref в синхронизации с state для использования внутри polling
+  useEffect(() => {
+    activeChannelRef.current = activeChannel;
+  }, [activeChannel]);
 
   const loadFiles = useCallback(async (channelId: number) => {
     const d = await filesApi.getFiles(channelId);
     setFiles(d.files);
   }, []);
 
+  // Загрузка истории при смене канала
   useEffect(() => {
     if (!activeChannel) return;
-    loadMessages(activeChannel.id);
+    lastMessageIdRef.current = 0;
+    setMessages([]);
+
+    chatApi.getMessages(activeChannel.id).then((d) => {
+      setMessages(d.messages);
+      if (d.messages.length > 0) {
+        lastMessageIdRef.current = d.messages[d.messages.length - 1].id;
+      }
+    });
     loadFiles(activeChannel.id);
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => loadMessages(activeChannel.id), 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [activeChannel, loadMessages, loadFiles]);
+  }, [activeChannel, loadFiles]);
+
+  // Long-polling: каждые 2 сек спрашиваем новые сообщения по last_id
+  useEffect(() => {
+    let stopped = false;
+
+    const poll = async () => {
+      if (stopped) return;
+      const ch = activeChannelRef.current;
+      if (!ch) {
+        pollRef.current = setTimeout(poll, 2000);
+        return;
+      }
+      try {
+        const d = await chatApi.pollMessages(ch.id, lastMessageIdRef.current);
+        if (!stopped && d.messages.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newMsgs = d.messages.filter((m: Message) => !existingIds.has(m.id));
+            if (newMsgs.length === 0) return prev;
+            lastMessageIdRef.current = newMsgs[newMsgs.length - 1].id;
+            return [...prev, ...newMsgs];
+          });
+        }
+        setOnline(true);
+      } catch {
+        setOnline(false);
+      }
+      if (!stopped) pollRef.current = setTimeout(poll, 2000);
+    };
+
+    pollRef.current = setTimeout(poll, 2000);
+    return () => {
+      stopped = true;
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -74,7 +119,12 @@ export default function Dashboard({ onOpenAdmin }: Props) {
     setSending(true);
     try {
       const d = await chatApi.sendMessage(activeChannel.id, input.trim());
-      setMessages((prev) => [...prev, d.message]);
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === d.message.id);
+        if (exists) return prev;
+        lastMessageIdRef.current = d.message.id;
+        return [...prev, d.message];
+      });
       setInput("");
     } finally {
       setSending(false);
@@ -109,6 +159,11 @@ export default function Dashboard({ onOpenAdmin }: Props) {
             <Icon name="GraduationCap" size={18} className="text-white" />
           </div>
           <span className="font-bold text-white">УчебаЛаб</span>
+          {/* Индикатор соединения */}
+          <div className="flex items-center gap-1.5 ml-2">
+            <div className={`w-2 h-2 rounded-full ${online ? "bg-[#3ba55c]" : "bg-[#ed4245]"} animate-pulse`} />
+            <span className="text-[#8e9297] text-xs hidden sm:block">{online ? "в сети" : "нет связи"}</span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-2">
@@ -142,7 +197,7 @@ export default function Dashboard({ onOpenAdmin }: Props) {
             {channels.map((ch) => (
               <button
                 key={ch.id}
-                onClick={() => { setActiveChannel(ch); setMobileSidebar(false); }}
+                onClick={() => { setActiveChannel(ch); setMobileSidebar(false); setActiveTab("chat"); }}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm mb-0.5 transition-colors text-left ${
                   activeChannel?.id === ch.id
                     ? "bg-[#393c43] text-white"
@@ -278,7 +333,11 @@ export default function Dashboard({ onOpenAdmin }: Props) {
                 {files.map((file) => (
                   <div key={file.id} className="bg-[#2f3136] border border-[#202225] rounded-lg p-3 flex items-center gap-3 hover:bg-[#36393f] transition-colors">
                     <div className="w-10 h-10 bg-[#5865f2]/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Icon name={file.mime_type?.includes("pdf") ? "FileText" : file.mime_type?.includes("image") ? "Image" : "File"} size={20} className="text-[#5865f2]" />
+                      <Icon
+                        name={file.mime_type?.includes("pdf") ? "FileText" : file.mime_type?.includes("image") ? "Image" : "File"}
+                        size={20}
+                        className="text-[#5865f2]"
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-white text-sm font-medium truncate">{file.name}</div>

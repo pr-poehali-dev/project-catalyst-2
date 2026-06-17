@@ -1,7 +1,6 @@
 import json
 import os
 import psycopg2
-from datetime import datetime, timedelta
 
 
 def get_db():
@@ -23,7 +22,7 @@ def get_user_by_session(conn, session_id: str):
 
 
 def handler(event: dict, context) -> dict:
-    """Чат: каналы и сообщения"""
+    """Чат: каналы и сообщения. Роутинг через ?action=channels|messages|send"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -34,8 +33,9 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": cors, "body": ""}
 
     method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
     params = event.get("queryStringParameters") or {}
+    action = params.get("action", "")
+
     body = {}
     if event.get("body"):
         try:
@@ -49,16 +49,16 @@ def handler(event: dict, context) -> dict:
     try:
         user = get_user_by_session(conn, session_id) if session_id else None
 
-        # GET /channels
-        if method == "GET" and path.endswith("/channels"):
+        # action=channels
+        if action == "channels":
             with conn.cursor() as cur:
                 cur.execute("SELECT id, name, description FROM channels ORDER BY id")
                 rows = cur.fetchall()
             channels = [{"id": r[0], "name": r[1], "description": r[2]} for r in rows]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"channels": channels})}
 
-        # GET /messages?channel_id=X
-        if method == "GET" and path.endswith("/messages"):
+        # action=messages&channel_id=X
+        if action == "messages":
             channel_id = params.get("channel_id")
             if not channel_id:
                 return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "channel_id required"})}
@@ -72,19 +72,34 @@ def handler(event: dict, context) -> dict:
                 )
                 rows = cur.fetchall()
             messages = [
-                {
-                    "id": r[0],
-                    "content": r[1],
-                    "created_at": r[2].isoformat(),
-                    "username": r[3],
-                    "role": r[4]
-                }
+                {"id": r[0], "content": r[1], "created_at": r[2].isoformat(), "username": r[3], "role": r[4]}
                 for r in reversed(rows)
             ]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"messages": messages})}
 
-        # POST /messages
-        if method == "POST" and path.endswith("/messages"):
+        # action=poll&channel_id=X&last_id=Y  — для long-polling новых сообщений
+        if action == "poll":
+            channel_id = params.get("channel_id")
+            last_id = params.get("last_id", "0")
+            if not channel_id:
+                return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "channel_id required"})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT m.id, m.content, m.created_at, u.username, u.role
+                       FROM messages m JOIN users u ON m.user_id = u.id
+                       WHERE m.channel_id = %s AND m.id > %s
+                       ORDER BY m.created_at ASC LIMIT 20""",
+                    (channel_id, int(last_id))
+                )
+                rows = cur.fetchall()
+            messages = [
+                {"id": r[0], "content": r[1], "created_at": r[2].isoformat(), "username": r[3], "role": r[4]}
+                for r in rows
+            ]
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"messages": messages})}
+
+        # action=send
+        if action == "send":
             if not user:
                 return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
             channel_id = body.get("channel_id")
@@ -105,16 +120,14 @@ def handler(event: dict, context) -> dict:
                 "headers": cors,
                 "body": json.dumps({
                     "message": {
-                        "id": row[0],
-                        "content": content,
+                        "id": row[0], "content": content,
                         "created_at": row[1].isoformat(),
-                        "username": user["username"],
-                        "role": user["role"]
+                        "username": user["username"], "role": user["role"]
                     }
                 })
             }
 
-        return {"statusCode": 404, "headers": cors, "body": json.dumps({"error": "Not found"})}
+        return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
 
     finally:
         conn.close()

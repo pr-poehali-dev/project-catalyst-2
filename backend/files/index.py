@@ -34,7 +34,7 @@ def get_user_by_session(conn, session_id: str):
 
 
 def handler(event: dict, context) -> dict:
-    """Файлы: загрузка, скачивание, список"""
+    """Файлы: список и загрузка. Роутинг через ?action=list|upload"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -44,9 +44,9 @@ def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
 
-    method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
     params = event.get("queryStringParameters") or {}
+    action = params.get("action", "")
+
     body = {}
     if event.get("body"):
         try:
@@ -60,8 +60,8 @@ def handler(event: dict, context) -> dict:
     try:
         user = get_user_by_session(conn, session_id) if session_id else None
 
-        # GET /files?channel_id=X
-        if method == "GET" and path.endswith("/files"):
+        # action=list&channel_id=X
+        if action == "list":
             channel_id = params.get("channel_id")
             with conn.cursor() as cur:
                 if channel_id:
@@ -82,20 +82,16 @@ def handler(event: dict, context) -> dict:
             access_key = os.environ["AWS_ACCESS_KEY_ID"]
             files = [
                 {
-                    "id": r[0],
-                    "name": r[1],
-                    "size": r[2],
-                    "mime_type": r[3],
+                    "id": r[0], "name": r[1], "size": r[2], "mime_type": r[3],
                     "url": f"https://cdn.poehali.dev/projects/{access_key}/bucket/{r[4]}",
-                    "created_at": r[5].isoformat(),
-                    "uploaded_by": r[6],
+                    "created_at": r[5].isoformat(), "uploaded_by": r[6],
                 }
                 for r in rows
             ]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"files": files})}
 
-        # POST /upload
-        if method == "POST" and path.endswith("/upload"):
+        # action=upload
+        if action == "upload":
             if not user:
                 return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
 
@@ -117,12 +113,7 @@ def handler(event: dict, context) -> dict:
             s3_key = f"lms/files/{uuid.uuid4()}.{ext}"
 
             s3 = get_s3()
-            s3.put_object(
-                Bucket="files",
-                Key=s3_key,
-                Body=file_bytes,
-                ContentType=mime_type,
-            )
+            s3.put_object(Bucket="files", Key=s3_key, Body=file_bytes, ContentType=mime_type)
 
             with conn.cursor() as cur:
                 cur.execute(
@@ -139,18 +130,14 @@ def handler(event: dict, context) -> dict:
                 "headers": cors,
                 "body": json.dumps({
                     "file": {
-                        "id": row[0],
-                        "name": file_name,
-                        "size": file_size,
-                        "mime_type": mime_type,
+                        "id": row[0], "name": file_name, "size": file_size, "mime_type": mime_type,
                         "url": f"https://cdn.poehali.dev/projects/{access_key}/bucket/{s3_key}",
-                        "created_at": row[1].isoformat(),
-                        "uploaded_by": user["username"],
+                        "created_at": row[1].isoformat(), "uploaded_by": user["username"],
                     }
                 })
             }
 
-        return {"statusCode": 404, "headers": cors, "body": json.dumps({"error": "Not found"})}
+        return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
 
     finally:
         conn.close()

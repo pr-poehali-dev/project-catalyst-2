@@ -22,7 +22,7 @@ def get_user_by_session(conn, session_id: str):
 
 
 def handler(event: dict, context) -> dict:
-    """Администрирование: управление пользователями и каналами"""
+    """Администрирование. Роутинг через ?action=stats|users|set_role|create_channel"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
@@ -32,8 +32,9 @@ def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
 
-    method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
+    params = event.get("queryStringParameters") or {}
+    action = params.get("action", "")
+
     body = {}
     if event.get("body"):
         try:
@@ -49,8 +50,8 @@ def handler(event: dict, context) -> dict:
         if not user or user["role"] != "admin":
             return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Доступ запрещён"})}
 
-        # GET /users
-        if method == "GET" and path.endswith("/users"):
+        # action=users
+        if action == "users":
             with conn.cursor() as cur:
                 cur.execute("SELECT id, email, username, role, created_at FROM users ORDER BY created_at DESC")
                 rows = cur.fetchall()
@@ -60,8 +61,8 @@ def handler(event: dict, context) -> dict:
             ]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"users": users})}
 
-        # PUT /users/role — изменить роль пользователя
-        if method == "PUT" and "/role" in path:
+        # action=set_role
+        if action == "set_role":
             user_id = body.get("user_id")
             new_role = body.get("role")
             if new_role not in ("student", "teacher", "admin"):
@@ -71,8 +72,8 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
 
-        # POST /channels — создать канал
-        if method == "POST" and path.endswith("/channels"):
+        # action=create_channel
+        if action == "create_channel":
             name = body.get("name", "").strip()
             description = body.get("description", "").strip()
             if not name:
@@ -86,8 +87,8 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"id": channel_id, "name": name})}
 
-        # GET /stats
-        if method == "GET" and path.endswith("/stats"):
+        # action=stats
+        if action == "stats":
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM users")
                 total_users = cur.fetchone()[0]
@@ -104,16 +105,13 @@ def handler(event: dict, context) -> dict:
                 "headers": cors,
                 "body": json.dumps({
                     "stats": {
-                        "total_users": total_users,
-                        "students": students,
-                        "teachers": teachers,
-                        "total_files": total_files,
-                        "total_messages": total_messages,
+                        "total_users": total_users, "students": students, "teachers": teachers,
+                        "total_files": total_files, "total_messages": total_messages,
                     }
                 })
             }
 
-        return {"statusCode": 404, "headers": cors, "body": json.dumps({"error": "Not found"})}
+        return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
 
     finally:
         conn.close()

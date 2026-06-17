@@ -22,51 +22,54 @@ async function req(url: string, options: RequestInit = {}) {
   return data;
 }
 
-// AUTH
+// AUTH — роутинг через ?action=
 export const authApi = {
   register: (email: string, username: string, password: string, role: string) =>
-    req(`${URLS.auth}/register`, {
+    req(`${URLS.auth}?action=register`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ email, username, password, role }),
     }),
 
   login: (email: string, password: string) =>
-    req(`${URLS.auth}/login`, {
+    req(`${URLS.auth}?action=login`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ email, password }),
     }),
 
   me: () =>
-    req(`${URLS.auth}/me`, { headers: headers() }),
+    req(`${URLS.auth}?action=me`, { headers: headers() }),
 
   logout: () =>
-    req(`${URLS.auth}/logout`, { method: "POST", headers: headers() }),
+    req(`${URLS.auth}?action=logout`, { method: "POST", headers: headers() }),
 };
 
-// CHAT
+// CHAT — роутинг через ?action=
 export const chatApi = {
   getChannels: () =>
-    req(`${URLS.chat}/channels`, { headers: headers() }),
+    req(`${URLS.chat}?action=channels`, { headers: headers() }),
 
   getMessages: (channel_id: number) =>
-    req(`${URLS.chat}/messages?channel_id=${channel_id}`, { headers: headers() }),
+    req(`${URLS.chat}?action=messages&channel_id=${channel_id}`, { headers: headers() }),
+
+  pollMessages: (channel_id: number, last_id: number) =>
+    req(`${URLS.chat}?action=poll&channel_id=${channel_id}&last_id=${last_id}`, { headers: headers() }),
 
   sendMessage: (channel_id: number, content: string) =>
-    req(`${URLS.chat}/messages`, {
+    req(`${URLS.chat}?action=send`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ channel_id, content }),
     }),
 };
 
-// FILES
+// FILES — роутинг через ?action=
 export const filesApi = {
   getFiles: (channel_id?: number) => {
     const url = channel_id
-      ? `${URLS.files}/files?channel_id=${channel_id}`
-      : `${URLS.files}/files`;
+      ? `${URLS.files}?action=list&channel_id=${channel_id}`
+      : `${URLS.files}?action=list`;
     return req(url, { headers: headers() });
   },
 
@@ -76,7 +79,7 @@ export const filesApi = {
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(",")[1];
-          const data = await req(`${URLS.files}/upload`, {
+          const data = await req(`${URLS.files}?action=upload`, {
             method: "POST",
             headers: headers(),
             body: JSON.stringify({
@@ -96,27 +99,27 @@ export const filesApi = {
     }),
 };
 
-// ADMIN
+// ADMIN — роутинг через ?action=
 export const adminApi = {
   getUsers: () =>
-    req(`${URLS.admin}/users`, { headers: headers() }),
+    req(`${URLS.admin}?action=users`, { headers: headers() }),
 
   setRole: (user_id: number, role: string) =>
-    req(`${URLS.admin}/users/role`, {
-      method: "PUT",
+    req(`${URLS.admin}?action=set_role`, {
+      method: "POST",
       headers: headers(),
       body: JSON.stringify({ user_id, role }),
     }),
 
   createChannel: (name: string, description: string) =>
-    req(`${URLS.admin}/channels`, {
+    req(`${URLS.admin}?action=create_channel`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ name, description }),
     }),
 
   getStats: () =>
-    req(`${URLS.admin}/stats`, { headers: headers() }),
+    req(`${URLS.admin}?action=stats`, { headers: headers() }),
 };
 
 export function formatFileSize(bytes: number): string {
