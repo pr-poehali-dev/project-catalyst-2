@@ -40,7 +40,7 @@ def handler(event: dict, context) -> dict:
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
     }
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
@@ -54,7 +54,7 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass
 
-    token = event.get("headers", {}).get("X-Session-Id", "")
+    token = event.get("headers", {}).get("X-Authorization", "")
     conn = get_db()
 
     try:
