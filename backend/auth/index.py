@@ -16,24 +16,26 @@ def hash_password(password: str) -> str:
 
 
 def create_session(conn, user_id: int) -> str:
-    session_id = secrets.token_hex(32)
+    token = secrets.token_hex(32)
     expires_at = datetime.now() + timedelta(days=30)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sessions (id, user_id, expires_at) VALUES (%s, %s, %s)",
-            (session_id, user_id, expires_at)
+            (token, user_id, expires_at)
         )
     conn.commit()
-    return session_id
+    return token
 
 
-def get_user_by_session(conn, session_id: str):
+def get_user_by_session(conn, token: str):
+    if not token:
+        return None
     with conn.cursor() as cur:
         cur.execute(
             """SELECT u.id, u.email, u.username, u.role
                FROM sessions s JOIN users u ON s.user_id = u.id
                WHERE s.id = %s AND s.expires_at > NOW()""",
-            (session_id,)
+            (token,)
         )
         row = cur.fetchone()
     if not row:
@@ -41,21 +43,30 @@ def get_user_by_session(conn, session_id: str):
     return {"id": row[0], "email": row[1], "username": row[2], "role": row[3]}
 
 
+def log_action(conn, user_id, action, details="", ip=""):
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO audit_logs (user_id, action, details, ip) VALUES (%s, %s, %s, %s)",
+                (user_id, action, details, ip)
+            )
+        conn.commit()
+    except Exception:
+        pass
+
+
 def handler(event: dict, context) -> dict:
-    """Аутентификация: регистрация, вход, выход, профиль. Роутинг через ?action="""
+    """Аутентификация. ?action=register|login|me|logout"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
     }
-
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": cors, "body": ""}
 
-    method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
     action = params.get("action", "")
-
     body = {}
     if event.get("body"):
         try:
@@ -63,11 +74,11 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass
 
-    session_id = event.get("headers", {}).get("X-Session-Id", "")
+    token = event.get("headers", {}).get("X-Session-Id", "")
+    ip = (event.get("requestContext") or {}).get("identity", {}).get("sourceIp", "")
     conn = get_db()
 
     try:
-        # action=register
         if action == "register":
             email = body.get("email", "").strip().lower()
             username = body.get("username", "").strip()
@@ -75,12 +86,10 @@ def handler(event: dict, context) -> dict:
             role = body.get("role", "student")
             if role not in ("student", "teacher"):
                 role = "student"
-
             if not email or not username or not password:
                 return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Заполните все поля"})}
             if len(password) < 6:
                 return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Пароль минимум 6 символов"})}
-
             pw_hash = hash_password(password)
             try:
                 with conn.cursor() as cur:
@@ -93,55 +102,58 @@ def handler(event: dict, context) -> dict:
             except psycopg2.errors.UniqueViolation:
                 conn.rollback()
                 return {"statusCode": 409, "headers": cors, "body": json.dumps({"error": "Email уже занят"})}
-
+            log_action(conn, user_id, "register", f"role={role}", ip)
             sid = create_session(conn, user_id)
-            return {
-                "statusCode": 200,
-                "headers": cors,
-                "body": json.dumps({
-                    "session_id": sid,
-                    "user": {"id": user_id, "email": email, "username": username, "role": role}
-                })
-            }
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({
+                "token": sid,
+                "user": {"id": user_id, "email": email, "username": username, "role": role, "course_id": None}
+            })}
 
-        # action=login
         if action == "login":
             email = body.get("email", "").strip().lower()
             password = body.get("password", "")
             pw_hash = hash_password(password)
-
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, email, username, role FROM users WHERE email = %s AND password_hash = %s",
                     (email, pw_hash)
                 )
                 row = cur.fetchone()
-
             if not row:
                 return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный email или пароль"})}
-
             user = {"id": row[0], "email": row[1], "username": row[2], "role": row[3]}
+            log_action(conn, user["id"], "login", "", ip)
+            # курс студента
+            course_id = None
+            with conn.cursor() as cur:
+                cur.execute("SELECT course_id FROM enrollments WHERE user_id = %s LIMIT 1", (user["id"],))
+                r = cur.fetchone()
+                if r:
+                    course_id = r[0]
+            user["course_id"] = course_id
             sid = create_session(conn, user["id"])
-            return {"statusCode": 200, "headers": cors, "body": json.dumps({"session_id": sid, "user": user})}
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"token": sid, "user": user})}
 
-        # action=me
         if action == "me":
-            if not session_id:
-                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
-            user = get_user_by_session(conn, session_id)
+            user = get_user_by_session(conn, token)
             if not user:
-                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Сессия истекла"})}
+                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
+            course_id = None
+            with conn.cursor() as cur:
+                cur.execute("SELECT course_id FROM enrollments WHERE user_id = %s LIMIT 1", (user["id"],))
+                r = cur.fetchone()
+                if r:
+                    course_id = r[0]
+            user["course_id"] = course_id
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"user": user})}
 
-        # action=logout
         if action == "logout":
-            if session_id:
+            if token:
                 with conn.cursor() as cur:
-                    cur.execute("UPDATE sessions SET expires_at = NOW() WHERE id = %s", (session_id,))
+                    cur.execute("UPDATE sessions SET expires_at = NOW() WHERE id = %s", (token,))
                 conn.commit()
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
 
         return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
-
     finally:
         conn.close()

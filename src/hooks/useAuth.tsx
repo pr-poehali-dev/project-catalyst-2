@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { authApi } from "@/lib/api";
 
-interface User {
+export interface User {
   id: number;
   email: string;
   username: string;
   role: "student" | "teacher" | "admin";
+  course_id: number | null;
 }
 
 interface AuthContextType {
@@ -14,6 +15,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, username: string, password: string, role: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -22,35 +24,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const sessionId = localStorage.getItem("session_id");
-    if (!sessionId) { setLoading(false); return; }
-    authApi.me()
-      .then((data) => setUser(data.user))
-      .catch(() => localStorage.removeItem("session_id"))
-      .finally(() => setLoading(false));
-  }, []);
+  const fetchMe = async () => {
+    const token = localStorage.getItem("session_id");
+    if (!token) { setLoading(false); return; }
+    try {
+      const data = await authApi.me();
+      setUser(data.user);
+    } catch {
+      localStorage.removeItem("session_id");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchMe(); }, []);
 
   const login = async (email: string, password: string) => {
     const data = await authApi.login(email, password);
-    localStorage.setItem("session_id", data.session_id);
+    localStorage.setItem("session_id", data.token);
     setUser(data.user);
   };
 
   const register = async (email: string, username: string, password: string, role: string) => {
     const data = await authApi.register(email, username, password, role);
-    localStorage.setItem("session_id", data.session_id);
+    localStorage.setItem("session_id", data.token);
     setUser(data.user);
   };
 
   const logout = async () => {
-    await authApi.logout();
+    try { await authApi.logout(); } catch { /* ignore */ }
     localStorage.removeItem("session_id");
     setUser(null);
   };
 
+  const refreshUser = async () => { await fetchMe(); };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
