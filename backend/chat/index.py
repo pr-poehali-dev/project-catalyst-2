@@ -160,8 +160,8 @@ def handler(event: dict, context) -> dict:
                 return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Слишком длинное"})}
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO messages (subject_channel_id, user_id, content) VALUES (%s,%s,%s) RETURNING id, created_at",
-                    (sch_id, user["id"], content)
+                    "INSERT INTO messages (channel_id, subject_channel_id, user_id, content) VALUES (%s,%s,%s,%s) RETURNING id, created_at",
+                    (1, sch_id, user["id"], content)
                 )
                 row = cur.fetchone()
             conn.commit()
