@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { adminApi, formatDate, formatFileSize } from "@/lib/api";
+import { adminApi, profileApi, formatDate, formatFileSize } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import Icon from "@/components/ui/icon";
 
@@ -9,11 +9,12 @@ interface Member { id: number; username: string; email: string; role: string }
 interface LogEntry { id: number; action: string; details: string; ip: string; created_at: string; username: string }
 interface FileItem { id: number; name: string; size: number; mime_type: string; url: string; created_at: string; uploaded_by: string }
 interface Stats { total_users: number; students: number; teachers: number; total_files: number; total_messages: number; total_enrollments: number }
+interface AccountUser { id: number; email: string; username: string; role: string; full_name: string; birth_date: string; phone: string; created_at: string; course_name: string; course_year: number | null }
 
-const ACTION_ICONS: Record<string, string> = { login: "LogIn", register: "UserPlus", enroll: "UserCheck", set_role: "Shield", delete_file: "Trash2" };
+const ACTION_ICONS: Record<string, string> = { login: "LogIn", register: "UserPlus", enroll: "UserCheck", set_role: "Shield", delete_file: "Trash2", change_password: "Key", admin_change_password: "ShieldAlert", profile_update: "Edit3", delete_message: "Trash2" };
 
 export default function AdminPanel({ onBack }: { onBack: () => void }) {
-  const [tab, setTab] = useState<"stats" | "users" | "courses" | "files" | "logs">("stats");
+  const [tab, setTab] = useState<"stats" | "users" | "courses" | "accounts" | "files" | "logs">("stats");
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -25,6 +26,12 @@ export default function AdminPanel({ onBack }: { onBack: () => void }) {
   const [fileDate, setFileDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [updatingUser, setUpdatingUser] = useState<number | null>(null);
+
+  // Аккаунты
+  const [accounts, setAccounts] = useState<AccountUser[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<AccountUser | null>(null);
+  const [newPw, setNewPw] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
 
   useEffect(() => {
     adminApi.getStats().then(d => setStats(d.stats));
@@ -38,6 +45,10 @@ export default function AdminPanel({ onBack }: { onBack: () => void }) {
       adminApi.getLogs(200).then(d => setLogs(d.logs)).finally(() => setLoading(false));
     }
     if (tab === "files") loadFiles();
+    if (tab === "accounts") {
+      setLoading(true);
+      profileApi.adminList().then(d => setAccounts(d.users)).finally(() => setLoading(false));
+    }
   }, [tab]);
 
   useEffect(() => {
@@ -79,10 +90,27 @@ export default function AdminPanel({ onBack }: { onBack: () => void }) {
   const roleColor = (r: string) => r === "admin" ? "text-[#ed4245]" : r === "teacher" ? "text-[#3ba55c]" : "text-[#b9bbbe]";
   const avatarBg = (r: string) => r === "admin" ? "bg-[#ed4245]" : r === "teacher" ? "bg-[#3ba55c]" : "bg-[#5865f2]";
 
+  const handleAdminChangePw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAccount) return;
+    if (newPw.length < 6) { setPwMsg("Минимум 6 символов"); return; }
+    try {
+      await profileApi.adminChangePassword(selectedAccount.id, newPw);
+      setPwMsg("Пароль изменён!");
+      setNewPw("");
+    } catch (err) {
+      setPwMsg(err instanceof Error ? err.message : "Ошибка");
+    }
+  };
+
+  const ROLE_LABEL: Record<string, string> = { admin: "Администратор", teacher: "Преподаватель", student: "Студент" };
+  const AVATAR_BG: Record<string, string> = { admin: "bg-[#ed4245]", teacher: "bg-[#3ba55c]", student: "bg-[#5865f2]" };
+
   const TABS = [
     { key: "stats", label: "Статистика", icon: "BarChart2" },
     { key: "users", label: "Пользователи", icon: "Users" },
     { key: "courses", label: "Курсы", icon: "GraduationCap" },
+    { key: "accounts", label: "Аккаунты", icon: "UserCog" },
     { key: "files", label: "Файлы", icon: "FolderOpen" },
     { key: "logs", label: "Логи", icon: "Activity" },
   ];
@@ -224,6 +252,94 @@ export default function AdminPanel({ onBack }: { onBack: () => void }) {
                       ))}
                     </div>
                   }
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* АККАУНТЫ */}
+          {tab === "accounts" && (
+            <div className="flex gap-4 h-full" style={{ minHeight: 500 }}>
+              {/* Список аккаунтов */}
+              <div className="w-64 flex-shrink-0">
+                <h2 className="text-xl font-bold mb-4">Аккаунты ({accounts.length})</h2>
+                {loading && <div className="text-[#b9bbbe] text-sm">Загрузка...</div>}
+                <div className="space-y-1.5">
+                  {accounts.map(a => (
+                    <button key={a.id} onClick={() => { setSelectedAccount(a); setNewPw(""); setPwMsg(""); }}
+                      className={`w-full flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-colors border ${selectedAccount?.id === a.id ? "bg-[#5865f2]/20 border-[#5865f2]" : "bg-[#2f3136] border-[#202225] hover:border-[#5865f2]/40"}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${AVATAR_BG[a.role]}`}>
+                        {(a.full_name || a.username)[0]?.toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm font-medium truncate">{a.full_name || a.username}</div>
+                        <div className="text-[#b9bbbe] text-xs truncate">{ROLE_LABEL[a.role]}{a.course_name ? ` · ${a.course_name}` : ""}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Карточка выбранного аккаунта */}
+              {selectedAccount ? (
+                <div className="flex-1 bg-[#2f3136] border border-[#202225] rounded-lg overflow-hidden self-start">
+                  <div className="h-20 bg-gradient-to-r from-[#5865f2] to-[#7c3aed]" />
+                  <div className="px-5 pb-5">
+                    <div className="flex items-end gap-3 -mt-7 mb-4">
+                      <div className={`w-14 h-14 rounded-full border-4 border-[#2f3136] flex items-center justify-center text-white text-xl font-bold flex-shrink-0 ${AVATAR_BG[selectedAccount.role]}`}>
+                        {(selectedAccount.full_name || selectedAccount.username)[0]?.toUpperCase()}
+                      </div>
+                      <div className="pb-1">
+                        <div className="text-white font-bold">{selectedAccount.full_name || selectedAccount.username}</div>
+                        <div className="text-[#b9bbbe] text-xs">{selectedAccount.email}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+                      {[
+                        { icon: "Shield", label: "Роль", value: ROLE_LABEL[selectedAccount.role] },
+                        { icon: "GraduationCap", label: "Курс", value: selectedAccount.course_name || "—" },
+                        { icon: "Calendar", label: "Дата рождения", value: selectedAccount.birth_date ? new Date(selectedAccount.birth_date).toLocaleDateString("ru-RU") : "—" },
+                        { icon: "Phone", label: "Телефон", value: selectedAccount.phone || "—" },
+                        { icon: "Clock", label: "Зарегистрирован", value: formatDate(selectedAccount.created_at) },
+                      ].map(item => (
+                        <div key={item.label} className="bg-[#36393f] rounded p-2.5">
+                          <div className="flex items-center gap-1.5 text-[#8e9297] text-xs mb-0.5">
+                            <Icon name={item.icon} size={11} />
+                            {item.label}
+                          </div>
+                          <div className="text-white text-sm">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Смена пароля */}
+                    <div className="border-t border-[#40444b] pt-4">
+                      <h4 className="text-white text-sm font-semibold mb-3 flex items-center gap-2">
+                        <Icon name="Key" size={14} className="text-[#ed4245]" />
+                        Сменить пароль
+                      </h4>
+                      <form onSubmit={handleAdminChangePw} className="flex gap-2">
+                        <input type="password" value={newPw} onChange={e => { setNewPw(e.target.value); setPwMsg(""); }}
+                          placeholder="Новый пароль (мин. 6 символов)"
+                          className="flex-1 bg-[#40444b] text-white placeholder-[#72767d] rounded px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#5865f2]"
+                          minLength={6} required />
+                        <Button type="submit" className="bg-[#ed4245] hover:bg-[#c03537] text-white text-sm px-4">
+                          Задать
+                        </Button>
+                      </form>
+                      {pwMsg && (
+                        <div className={`text-xs mt-2 ${pwMsg.includes("!") ? "text-[#3ba55c]" : "text-[#ed4245]"}`}>{pwMsg}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-[#72767d] text-sm">
+                  <div className="text-center">
+                    <Icon name="UserCog" size={40} className="mx-auto mb-2 opacity-20" />
+                    <p>Выберите аккаунт слева</p>
+                  </div>
                 </div>
               )}
             </div>

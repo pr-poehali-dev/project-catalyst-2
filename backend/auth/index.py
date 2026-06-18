@@ -56,7 +56,7 @@ def log_action(conn, user_id, action, details="", ip=""):
 
 
 def handler(event: dict, context) -> dict:
-    """Аутентификация. ?action=register|login|me|logout"""
+    """Аутентификация + профиль. ?action=register|login|me|logout|profile_get|profile_update|change_password|admin_change_password|admin_list"""
     cors = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -79,6 +79,7 @@ def handler(event: dict, context) -> dict:
     conn = get_db()
 
     try:
+        # ── AUTH ──────────────────────────────────────────────────────
         if action == "register":
             email = body.get("email", "").strip().lower()
             username = body.get("username", "").strip()
@@ -123,7 +124,6 @@ def handler(event: dict, context) -> dict:
                 return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный email или пароль"})}
             user = {"id": row[0], "email": row[1], "username": row[2], "role": row[3]}
             log_action(conn, user["id"], "login", "", ip)
-            # курс студента
             course_id = None
             with conn.cursor() as cur:
                 cur.execute("SELECT course_id FROM enrollments WHERE user_id = %s LIMIT 1", (user["id"],))
@@ -153,6 +153,120 @@ def handler(event: dict, context) -> dict:
                     cur.execute("UPDATE sessions SET expires_at = NOW() WHERE id = %s", (token,))
                 conn.commit()
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+        # ── ПРОФИЛЬ ───────────────────────────────────────────────────
+        if action == "profile_get":
+            user = get_user_by_session(conn, token)
+            if not user:
+                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
+            target_id = params.get("user_id", str(user["id"]))
+            if target_id != str(user["id"]) and user["role"] != "admin":
+                return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Нет прав"})}
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.email, u.username, u.role, u.full_name, u.birth_date,
+                           u.phone, u.bio, u.created_at, u.updated_at,
+                           c.name, c.year
+                    FROM users u
+                    LEFT JOIN enrollments e ON e.user_id = u.id
+                    LEFT JOIN courses c ON c.id = e.course_id
+                    WHERE u.id = %s
+                """, (int(target_id),))
+                row = cur.fetchone()
+            if not row:
+                return {"statusCode": 404, "headers": cors, "body": json.dumps({"error": "Не найден"})}
+            profile = {
+                "id": row[0], "email": row[1], "username": row[2], "role": row[3],
+                "full_name": row[4] or "", "birth_date": row[5].isoformat() if row[5] else "",
+                "phone": row[6] or "", "bio": row[7] or "",
+                "created_at": row[8].isoformat() if row[8] else "",
+                "updated_at": row[9].isoformat() if row[9] else "",
+                "course_name": row[10] or "", "course_year": row[11],
+            }
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"profile": profile})}
+
+        if action == "profile_update":
+            user = get_user_by_session(conn, token)
+            if not user:
+                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
+            target_id = int(body.get("user_id", user["id"]))
+            if target_id != user["id"] and user["role"] != "admin":
+                return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Нет прав"})}
+            full_name = body.get("full_name", "").strip() or None
+            birth_date = body.get("birth_date") or None
+            phone = body.get("phone", "").strip() or None
+            bio = body.get("bio", "").strip() or None
+            username = body.get("username", "").strip()
+            with conn.cursor() as cur:
+                if username:
+                    cur.execute("""
+                        UPDATE users SET full_name=%s, birth_date=%s, phone=%s, bio=%s,
+                        username=%s, updated_at=NOW() WHERE id=%s
+                    """, (full_name, birth_date, phone, bio, username, target_id))
+                else:
+                    cur.execute("""
+                        UPDATE users SET full_name=%s, birth_date=%s, phone=%s, bio=%s,
+                        updated_at=NOW() WHERE id=%s
+                    """, (full_name, birth_date, phone, bio, target_id))
+            conn.commit()
+            log_action(conn, user["id"], "profile_update", f"target={target_id}", ip)
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+        if action == "change_password":
+            user = get_user_by_session(conn, token)
+            if not user:
+                return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Не авторизован"})}
+            old_pw = body.get("old_password", "")
+            new_pw = body.get("new_password", "")
+            if len(new_pw) < 6:
+                return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Пароль минимум 6 символов"})}
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE id=%s AND password_hash=%s",
+                            (user["id"], hash_password(old_pw)))
+                if not cur.fetchone():
+                    return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Неверный текущий пароль"})}
+                cur.execute("UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
+                            (hash_password(new_pw), user["id"]))
+            conn.commit()
+            log_action(conn, user["id"], "change_password", "self", ip)
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+        if action == "admin_change_password":
+            user = get_user_by_session(conn, token)
+            if not user or user["role"] != "admin":
+                return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Нет прав"})}
+            target_id = int(body.get("user_id"))
+            new_pw = body.get("new_password", "")
+            if len(new_pw) < 6:
+                return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Пароль минимум 6 символов"})}
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
+                            (hash_password(new_pw), target_id))
+            conn.commit()
+            log_action(conn, user["id"], "admin_change_password", f"target={target_id}", ip)
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+        if action == "admin_list":
+            user = get_user_by_session(conn, token)
+            if not user or user["role"] != "admin":
+                return {"statusCode": 403, "headers": cors, "body": json.dumps({"error": "Нет прав"})}
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.email, u.username, u.role, u.full_name, u.birth_date,
+                           u.phone, u.created_at, c.name, c.year
+                    FROM users u
+                    LEFT JOIN enrollments e ON e.user_id = u.id
+                    LEFT JOIN courses c ON c.id = e.course_id
+                    ORDER BY u.created_at DESC
+                """)
+                rows = cur.fetchall()
+            users = [{
+                "id": r[0], "email": r[1], "username": r[2], "role": r[3],
+                "full_name": r[4] or "", "birth_date": r[5].isoformat() if r[5] else "",
+                "phone": r[6] or "", "created_at": r[7].isoformat() if r[7] else "",
+                "course_name": r[8] or "", "course_year": r[9],
+            } for r in rows]
+            return {"statusCode": 200, "headers": cors, "body": json.dumps({"users": users})}
 
         return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
     finally:

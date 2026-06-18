@@ -36,6 +36,20 @@ export const authApi = {
   logout: () => req(`${URLS.auth}?action=logout`, { method: "POST", headers: hPost() }),
 };
 
+export const profileApi = {
+  get: (user_id?: number) => {
+    const p = user_id ? `?action=profile_get&user_id=${user_id}` : "?action=profile_get";
+    return req(`${URLS.auth}${p}`, { headers: hGet() });
+  },
+  update: (data: Record<string, string | number>) =>
+    req(`${URLS.auth}?action=profile_update`, { method: "POST", headers: hPost(), body: JSON.stringify(data) }),
+  changePassword: (old_password: string, new_password: string) =>
+    req(`${URLS.auth}?action=change_password`, { method: "POST", headers: hPost(), body: JSON.stringify({ old_password, new_password }) }),
+  adminChangePassword: (user_id: number, new_password: string) =>
+    req(`${URLS.auth}?action=admin_change_password`, { method: "POST", headers: hPost(), body: JSON.stringify({ user_id, new_password }) }),
+  adminList: () => req(`${URLS.auth}?action=admin_list`, { headers: hGet() }),
+};
+
 export const chatApi = {
   getCourses: () => req(`${URLS.chat}?action=courses`, { headers: hGet() }),
   getSubjects: (course_id: number) => req(`${URLS.chat}?action=subjects&course_id=${course_id}`, { headers: hGet() }),

@@ -18,7 +18,7 @@ const AVATAR_BG: Record<string, string> = { admin: "bg-[#ed4245]", teacher: "bg-
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 const CH_ICON: Record<string, string> = { объявления: "Megaphone", материалы: "BookOpen", задания: "ClipboardList", вопросы: "HelpCircle", общий: "MessageSquare" };
 
-export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) {
+export default function Dashboard({ onOpenAdmin, onOpenProfile }: { onOpenAdmin: () => void; onOpenProfile: () => void }) {
   const { user, logout } = useAuth();
 
   const [courses, setCourses] = useState<Course[]>([]);
@@ -242,17 +242,21 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
             )}
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 ml-1">
+          <button onClick={onOpenProfile}
+            className="hidden sm:flex items-center gap-2 ml-1 px-2 py-1 rounded hover:bg-[#40444b] transition-colors">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ${AVATAR_BG[user?.role || "student"]}`}>
               {avatarLetter(user?.username || "")}
             </div>
             <span className="text-white text-sm">{user?.username}</span>
-          </div>
+          </button>
           {user?.role === "admin" && (
             <Button onClick={onOpenAdmin} size="sm" className="bg-[#ed4245] hover:bg-[#c03537] text-white text-xs px-2.5 h-7 ml-1">
               <Icon name="Shield" size={13} className="mr-1" />Админ
             </Button>
           )}
+          <Button onClick={onOpenProfile} variant="ghost" size="sm" className="sm:hidden text-[#b9bbbe] hover:text-white hover:bg-[#40444b] p-1.5">
+            <Icon name="User" size={16} />
+          </Button>
           <Button onClick={logout} variant="ghost" size="sm" className="text-[#b9bbbe] hover:text-white hover:bg-[#40444b] p-1.5">
             <Icon name="LogOut" size={16} />
           </Button>

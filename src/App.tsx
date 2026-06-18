@@ -8,12 +8,15 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import AdminPanel from "./pages/AdminPanel";
+import ProfilePage from "./pages/ProfilePage";
 
 const queryClient = new QueryClient();
 
+type Page = "login" | "register" | "dashboard" | "admin" | "profile";
+
 function AppInner() {
   const { user, loading } = useAuth();
-  const [page, setPage] = useState<"login" | "register" | "dashboard" | "admin">("login");
+  const [page, setPage] = useState<Page>("login");
 
   if (loading) {
     return (
@@ -32,7 +35,16 @@ function AppInner() {
     return <AdminPanel onBack={() => setPage("dashboard")} />;
   }
 
-  return <Dashboard onOpenAdmin={() => setPage("admin")} />;
+  if (page === "profile") {
+    return <ProfilePage onBack={() => setPage("dashboard")} />;
+  }
+
+  return (
+    <Dashboard
+      onOpenAdmin={() => setPage("admin")}
+      onOpenProfile={() => setPage("profile")}
+    />
+  );
 }
 
 const App = () => (
