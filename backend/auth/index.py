@@ -74,7 +74,8 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass
 
-    token = event.get("headers", {}).get("X-Authorization", "")
+    token = (event.get("headers", {}).get("X-Authorization", "")
+             or params.get("token", ""))
     ip = (event.get("requestContext") or {}).get("identity", {}).get("sourceIp", "")
     conn = get_db()
 

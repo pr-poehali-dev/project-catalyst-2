@@ -120,7 +120,7 @@ def handler(event: dict, context) -> dict:
             sch_id = params.get("channel_id")
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT m.id, m.content, m.created_at, u.username, u.role, m.reactions
+                    SELECT m.id, m.content, m.created_at, u.username, u.role, m.reactions, u.id
                     FROM messages m JOIN users u ON m.user_id=u.id
                     WHERE m.subject_channel_id=%s
                     ORDER BY m.created_at DESC LIMIT 50
@@ -128,7 +128,8 @@ def handler(event: dict, context) -> dict:
                 rows = cur.fetchall()
             messages = [{"id": r[0], "content": r[1], "created_at": r[2].isoformat(),
                          "username": r[3], "role": r[4],
-                         "reactions": json.loads(r[5]) if r[5] else {}} for r in reversed(rows)]
+                         "reactions": json.loads(r[5]) if r[5] else {},
+                         "user_id": r[6]} for r in reversed(rows)]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"messages": messages})}
 
         # --- POLLING новых сообщений ---
@@ -137,7 +138,7 @@ def handler(event: dict, context) -> dict:
             last_id = int(params.get("last_id", "0"))
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT m.id, m.content, m.created_at, u.username, u.role, m.reactions
+                    SELECT m.id, m.content, m.created_at, u.username, u.role, m.reactions, u.id
                     FROM messages m JOIN users u ON m.user_id=u.id
                     WHERE m.subject_channel_id=%s AND m.id > %s
                     ORDER BY m.created_at ASC LIMIT 20
@@ -145,7 +146,8 @@ def handler(event: dict, context) -> dict:
                 rows = cur.fetchall()
             messages = [{"id": r[0], "content": r[1], "created_at": r[2].isoformat(),
                          "username": r[3], "role": r[4],
-                         "reactions": json.loads(r[5]) if r[5] else {}} for r in rows]
+                         "reactions": json.loads(r[5]) if r[5] else {},
+                         "user_id": r[6]} for r in rows]
             return {"statusCode": 200, "headers": cors, "body": json.dumps({"messages": messages})}
 
         # --- ОТПРАВИТЬ СООБЩЕНИЕ ---
@@ -166,7 +168,8 @@ def handler(event: dict, context) -> dict:
                 row = cur.fetchone()
             conn.commit()
             msg = {"id": row[0], "content": content, "created_at": row[1].isoformat(),
-                   "username": user["username"], "role": user["role"], "reactions": {}}
+                   "username": user["username"], "role": user["role"], "reactions": {},
+                   "user_id": user["id"]}
 
             # уведомления участникам курса
             with conn.cursor() as cur:

@@ -38,8 +38,14 @@ export const authApi = {
 
 export const profileApi = {
   get: (user_id?: number) => {
-    const p = user_id ? `?action=profile_get&user_id=${user_id}` : "?action=profile_get";
-    return req(`${URLS.auth}${p}`, { headers: hGet() });
+    const t = getToken();
+    const p = new URLSearchParams({ action: "profile_get", token: t });
+    if (user_id) p.set("user_id", String(user_id));
+    return req(`${URLS.auth}?${p}`);
+  },
+  adminList: () => {
+    const t = getToken();
+    return req(`${URLS.auth}?action=admin_list&token=${t}`);
   },
   update: (data: Record<string, string | number>) =>
     req(`${URLS.auth}?action=profile_update`, { method: "POST", headers: hPost(), body: JSON.stringify(data) }),
@@ -47,7 +53,6 @@ export const profileApi = {
     req(`${URLS.auth}?action=change_password`, { method: "POST", headers: hPost(), body: JSON.stringify({ old_password, new_password }) }),
   adminChangePassword: (user_id: number, new_password: string) =>
     req(`${URLS.auth}?action=admin_change_password`, { method: "POST", headers: hPost(), body: JSON.stringify({ user_id, new_password }) }),
-  adminList: () => req(`${URLS.auth}?action=admin_list`, { headers: hGet() }),
 };
 
 export const chatApi = {

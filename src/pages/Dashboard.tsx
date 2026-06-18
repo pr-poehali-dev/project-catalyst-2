@@ -3,11 +3,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { chatApi, filesApi, formatFileSize, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import Icon from "@/components/ui/icon";
+import UserCard from "@/components/UserCard";
 
 interface Course { id: number; year: number; name: string }
 interface Subject { id: number; name: string; description: string }
 interface SubChannel { id: number; name: string }
-interface Message { id: number; content: string; created_at: string; username: string; role: string; reactions: Record<string, string[]> }
+interface Message { id: number; content: string; created_at: string; username: string; role: string; reactions: Record<string, string[]>; user_id?: number }
 interface FileItem { id: number; name: string; size: number; mime_type: string; url: string; created_at: string; uploaded_by: string }
 interface Member { id: number; username: string; role: string }
 interface Notif { id: number; type: string; title: string; body: string; is_read: boolean; created_at: string }
@@ -369,9 +370,11 @@ export default function Dashboard({ onOpenAdmin, onOpenProfile }: { onOpenAdmin:
                   )}
                   {messages.map(msg => (
                     <div key={msg.id} className="flex gap-2.5 group relative">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${AVATAR_BG[msg.role]}`}>
-                        {avatarLetter(msg.username)}
-                      </div>
+                      <UserCard userId={msg.user_id || 0}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity ${AVATAR_BG[msg.role]}`}>
+                          {avatarLetter(msg.username)}
+                        </div>
+                      </UserCard>
                       <div className={`flex-1 min-w-0 ${msg.content === "[сообщение удалено]" ? "pr-2" : "pr-16"}`}>
                         <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
                           <span className={`font-medium text-sm ${ROLE_COLOR[msg.role]}`}>{msg.username}</span>
@@ -511,15 +514,17 @@ export default function Dashboard({ onOpenAdmin, onOpenProfile }: { onOpenAdmin:
                         {rk === "admin" ? "Администраторы" : rk === "teacher" ? "Преподаватели" : "Студенты"} — {group.length}
                       </div>
                       {group.map(m => (
-                        <div key={m.id} className="flex items-center gap-2 py-1 hover:bg-[#36393f] rounded px-1 transition-colors">
-                          <div className="relative">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold ${AVATAR_BG[m.role]}`}>
-                              {avatarLetter(m.username)}
+                        <UserCard key={m.id} userId={m.id}>
+                          <div className="flex items-center gap-2 py-1 hover:bg-[#36393f] rounded px-1 transition-colors">
+                            <div className="relative">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold ${AVATAR_BG[m.role]}`}>
+                                {avatarLetter(m.username)}
+                              </div>
+                              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-[#3ba55c] border-2 border-[#2f3136] rounded-full" />
                             </div>
-                            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-[#3ba55c] border-2 border-[#2f3136] rounded-full" />
+                            <span className="text-[#dcddde] text-xs truncate">{m.username}</span>
                           </div>
-                          <span className="text-[#dcddde] text-xs truncate">{m.username}</span>
-                        </div>
+                        </UserCard>
                       ))}
                     </div>
                   );
