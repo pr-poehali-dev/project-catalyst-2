@@ -204,7 +204,7 @@ export default function Dashboard({ onOpenAdmin }: { onOpenAdmin: () => void }) 
           <div className="w-8 h-8 bg-[#5865f2] rounded-full flex items-center justify-center flex-shrink-0">
             <Icon name="GraduationCap" size={18} className="text-white" />
           </div>
-          <span className="font-bold hidden sm:block">УчебаЛаб</span>
+          <span className="font-bold hidden sm:block">FileTracker_Hexlet</span>
         </div>
         <div className="flex items-center gap-1.5">
           {/* Колокольчик */}
